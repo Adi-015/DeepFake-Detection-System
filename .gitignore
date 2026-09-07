@@ -1,0 +1,41 @@
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large model checkpoints (exclude .pt files only, track metrics/history)
+saved_model/*.pt
+backend/saved_model/*.pt
+*.pt
+*.pth
+*.onnx
+
+# Generated outputs & logs
+heatmaps/*.jpg
+heatmaps/*.png
+backend/heatmaps/*.jpg
+backend/heatmaps/*.png
+logs/*.log
+backend/logs/*.log
+*.log
+
+# Data & Pip Cache
+data/
+pip-cache/
+test_subset/
+
+# Environment files
+.env
+.env.*
+
+# Temporary backend migration folder
+backend/
+
+# OS files
+.DS_Store
+Thumbs.db
