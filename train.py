@@ -49,15 +49,10 @@ from utils.preprocessing import (
 # Custom Dataset with Frequency Features
 # ─────────────────────────────────────────────
 class DeepfakeDataset(Dataset):
-    """
-    Dataset loader supporting dataset/real/ and dataset/fake/ structure.
-    Returns both spatial and frequency tensors.
-    """
-    def __init__(self, root: str, split: str = 'train', val_ratio: float = 0.15):
-        self.root = Path(root)
+    def __init__(self, root: str, split: str = 'train'):
+        self.root = Path(root) / split
         self.split = split
 
-        # Gather all images
         self.samples = []
         self.labels  = []
 
@@ -70,18 +65,6 @@ class DeepfakeDataset(Dataset):
                 for p in cls_dir.glob(ext):
                     self.samples.append(str(p))
                     self.labels.append(label)
-
-        # Train/val split
-        n = len(self.samples)
-        indices = np.random.permutation(n)
-        val_size = int(n * val_ratio)
-        if split == 'val':
-            indices = indices[:val_size]
-        else:
-            indices = indices[val_size:]
-
-        self.samples = [self.samples[i] for i in indices]
-        self.labels  = [self.labels[i] for i in indices]
 
         self.spatial_tf = get_train_transforms() if split == 'train' else get_val_transforms()
         logger.info(f"[{split}] {len(self.samples)} images | real: {self.labels.count(0)} | fake: {self.labels.count(1)}")
@@ -100,8 +83,8 @@ class DeepfakeDataset(Dataset):
             logger.warning(f"Skipping corrupt image {img_path}: {e}")
             img = Image.new('RGB', (IMAGE_SIZE, IMAGE_SIZE))
 
-        spatial = self.spatial_tf(img)              # (3, H, W)
-        freq    = extract_freq_tensor(img)          # (4, H, W)
+        spatial = self.spatial_tf(img)
+        freq    = extract_freq_tensor(img)
         return spatial, freq, torch.tensor(label, dtype=torch.long)
 
     def get_class_weights(self) -> torch.Tensor:
@@ -111,9 +94,6 @@ class DeepfakeDataset(Dataset):
         return sample_weights
 
 
-# ─────────────────────────────────────────────
-# Loss Functions
-# ─────────────────────────────────────────────
 class FocalLoss(nn.Module):
     def __init__(self, gamma: float = 2.0, alpha: Optional[torch.Tensor] = None):
         super().__init__()
@@ -146,7 +126,7 @@ class Trainer:
 
     def _setup_data(self):
         train_ds = DeepfakeDataset(self.args.data_dir, split='train')
-        val_ds   = DeepfakeDataset(self.args.data_dir, split='val')
+        val_ds   = DeepfakeDataset(self.args.data_dir, split='valid')
 
         # Balanced sampling
         sample_weights = train_ds.get_class_weights()
