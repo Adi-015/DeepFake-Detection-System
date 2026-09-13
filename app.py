@@ -1,13 +1,3 @@
-"""
-app.py — FastAPI backend for Fake vs Real Image Detection.
-
-Endpoints:
-  POST /predict        → main detection endpoint
-  GET  /health         → health check
-  GET  /heatmaps/{fn}  → serve heatmap images
-  GET  /docs           → Swagger UI (auto-generated)
-"""
-
 import os
 import sys
 import time
@@ -26,13 +16,13 @@ import uvicorn
 
 # ── Path setup
 BASE_DIR   = Path(__file__).parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 MODEL_DIR  = BASE_DIR / 'model'
 HEATMAP_DIR = BASE_DIR / 'heatmaps'
 LOG_DIR    = BASE_DIR / 'logs'
 SAVED_MODEL_DIR = BASE_DIR / 'saved_model'
-
-sys.path.insert(0, str(MODEL_DIR))
-sys.path.insert(0, str(BASE_DIR))
 
 from model.predict import predict as run_predict
 from model.model_loader import load_model, unload_model
@@ -54,27 +44,21 @@ MODEL_PATH       = os.getenv("MODEL_PATH", str(SAVED_MODEL_DIR / "detector_best.
 BASE_URL         = os.getenv("BASE_URL", "http://localhost:8000")
 
 
-# ─────────────────────────────────────────────
-# Lifespan (startup / shutdown)
-# ─────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Starting Fake Image Detector API...")
+    logger.info("Starting Fake Image Detector API...")
     HEATMAP_DIR.mkdir(exist_ok=True)
     try:
         model_path = MODEL_PATH if Path(MODEL_PATH).exists() else None
         load_model(model_path)
-        logger.info("✅ Model loaded and warmed up.")
+        logger.info("Model loaded and warmed up.")
     except Exception as e:
-        logger.error(f"⚠️  Model load failed (dev mode): {e}")
+        logger.error(f"Model load failed (dev mode): {e}")
     yield
     logger.info("Shutting down...")
     unload_model()
 
 
-# ─────────────────────────────────────────────
-# App
-# ─────────────────────────────────────────────
 app = FastAPI(
     title="Fake vs Real Image Detector",
     description=(
@@ -92,13 +76,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve heatmap images
 app.mount("/heatmaps", StaticFiles(directory=str(HEATMAP_DIR)), name="heatmaps")
 
 
-# ─────────────────────────────────────────────
-# Response Schema
-# ─────────────────────────────────────────────
 class PredictionResponse(BaseModel):
     prediction:      str
     confidence:      float
@@ -115,21 +95,15 @@ class HealthResponse(BaseModel):
     timestamp: float
 
 
-# ─────────────────────────────────────────────
-# Middleware: Request logging
-# ─────────────────────────────────────────────
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     t0 = time.time()
     response = await call_next(request)
     elapsed = round(time.time() - t0, 3)
-    logger.info(f"{request.method} {request.url.path} → {response.status_code} ({elapsed}s)")
+    logger.info(f"{request.method} {request.url.path} -> {response.status_code} ({elapsed}s)")
     return response
 
 
-# ─────────────────────────────────────────────
-# Endpoints
-# ─────────────────────────────────────────────
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health():
     return HealthResponse(
@@ -144,20 +118,12 @@ async def predict_endpoint(
     file: UploadFile = File(..., description="Image file (JPEG, PNG, WebP, BMP)"),
     generate_heatmap: bool = Query(True, description="Generate GradCAM heatmap"),
 ):
-    """
-    Detect whether an image is AI-generated (Fake) or authentic (Real).
-
-    Returns prediction, confidence, probabilities, artifact score,
-    optional GradCAM heatmap URL, processing time, and image metadata.
-    """
-    # ── Content-type validation
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=415,
             detail=f"Unsupported file type '{file.content_type}'. Allowed: {ALLOWED_TYPES}",
         )
 
-    # ── Size validation
     image_bytes = await file.read()
     size_mb = len(image_bytes) / (1024 * 1024)
     if size_mb > MAX_FILE_SIZE_MB:
@@ -171,7 +137,6 @@ async def predict_endpoint(
 
     logger.info(f"Received image: {file.filename} ({size_mb:.2f} MB)")
 
-    # ── Run prediction
     try:
         result = run_predict(
             image_bytes,
@@ -201,9 +166,6 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# ─────────────────────────────────────────────
-# Entry point
-# ─────────────────────────────────────────────
 if __name__ == "__main__":
     uvicorn.run(
         "app:app",

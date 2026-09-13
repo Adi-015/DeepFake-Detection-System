@@ -1,15 +1,16 @@
-"""
-model_loader.py — Efficient model loading, caching, and device management.
-Implements singleton pattern for production inference.
-"""
-
 import torch
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 from loguru import logger
 
-from model_architecture import HybridDetector
+# Ensure backend root directory is in sys.path
+backend_dir = str(Path(__file__).resolve().parent.parent)
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
+from model.model_architecture import HybridDetector
 
 
 _MODEL_CACHE: Optional[HybridDetector] = None
@@ -22,7 +23,7 @@ def get_device() -> torch.device:
         if torch.cuda.is_available():
             _DEVICE = torch.device('cuda')
             logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
-        elif torch.backends.mps.is_available():
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             _DEVICE = torch.device('mps')
             logger.info("Apple Silicon MPS detected")
         else:
@@ -36,10 +37,6 @@ def load_model(
     backbone: str = 'efficientnet_b3',
     force_reload: bool = False,
 ) -> HybridDetector:
-    """
-    Load model with singleton caching for efficient inference.
-    Falls back to random weights if no checkpoint is found (dev mode).
-    """
     global _MODEL_CACHE
     if _MODEL_CACHE is not None and not force_reload:
         return _MODEL_CACHE
@@ -47,7 +44,6 @@ def load_model(
     device = get_device()
     model = HybridDetector(cnn_backbone=backbone)
 
-    # Resolve checkpoint path
     if model_path is None:
         candidates = [
             Path(__file__).parent.parent / 'saved_model' / 'detector_best.pt',
@@ -74,14 +70,11 @@ def load_model(
     model.eval()
 
     # Warmup pass
-    try:
-        dummy_spatial = torch.zeros(1, 3, 224, 224).to(device)
-        dummy_freq    = torch.zeros(1, 4, 224, 224).to(device)
-        with torch.no_grad():
-            _ = model(dummy_spatial, dummy_freq)
-        logger.info("Model warmup pass completed.")
-    except Exception as e:
-        logger.error(f"Warmup failed: {e}")
+    dummy_spatial = torch.zeros(1, 3, 224, 224).to(device)
+    dummy_freq    = torch.zeros(1, 4, 224, 224).to(device)
+    with torch.no_grad():
+        _ = model(dummy_spatial, dummy_freq)
+    logger.info("Model warmup pass completed.")
 
     _MODEL_CACHE = model
     return model

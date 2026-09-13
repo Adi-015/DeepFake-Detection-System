@@ -1,53 +1,42 @@
-"""
-train.py — Full training pipeline for Fake vs Real Image Detection.
-
-Supports:
-  - Hybrid CNN + ViT + Frequency model training
-  - Optional SimCLR-style self-supervised pretraining
-  - Mixed precision (AMP), cosine LR schedule, early stopping
-  - Comprehensive metrics: accuracy, F1, AUC, confusion matrix
-  - Checkpointing and TensorBoard logging
-
-Usage:
-  python train.py --data_dir ./dataset --epochs 30 --batch_size 32
-"""
-
 import argparse
 import os
+import sys
 import json
 import time
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 
+# Ensure backend root directory is in sys.path
+backend_dir = str(Path(__file__).resolve().parent.parent)
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torch.cuda.amp import GradScaler, autocast
 import torchvision.transforms as T
-from torchvision.datasets import ImageFolder
 import numpy as np
 from sklearn.metrics import (
     accuracy_score, f1_score, roc_auc_score,
     confusion_matrix, classification_report
 )
 from tqdm import tqdm
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from loguru import logger
 
-from model_architecture import HybridDetector, build_model
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from model.model_architecture import HybridDetector, build_model
 from utils.preprocessing import (
     get_train_transforms, get_val_transforms,
     extract_freq_tensor, IMAGE_SIZE
 )
 
 
-# ─────────────────────────────────────────────
-# Custom Dataset with Frequency Features
-# ─────────────────────────────────────────────
 class DeepfakeDataset(Dataset):
     def __init__(self, root: str, split: str = 'train'):
         self.root = Path(root) / split
@@ -106,12 +95,6 @@ class FocalLoss(nn.Module):
         return ((1 - pt) ** self.gamma * ce).mean()
 
 
-import torch.nn.functional as F
-
-
-# ─────────────────────────────────────────────
-# Trainer
-# ─────────────────────────────────────────────
 class Trainer:
     def __init__(self, args):
         self.args = args
@@ -128,17 +111,16 @@ class Trainer:
         train_ds = DeepfakeDataset(self.args.data_dir, split='train')
         val_ds   = DeepfakeDataset(self.args.data_dir, split='valid')
 
-        # Balanced sampling
         sample_weights = train_ds.get_class_weights()
         sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
 
         self.train_loader = DataLoader(
             train_ds, batch_size=self.args.batch_size,
-            sampler=sampler, num_workers=4, pin_memory=True
+            sampler=sampler, num_workers=self.args.num_workers, pin_memory=True
         )
         self.val_loader = DataLoader(
             val_ds, batch_size=self.args.batch_size,
-            shuffle=False, num_workers=4, pin_memory=True
+            shuffle=False, num_workers=self.args.num_workers, pin_memory=True
         )
 
     def _setup_model(self):
@@ -158,7 +140,6 @@ class Trainer:
         )
         self.scaler = GradScaler(enabled=(self.device.type == 'cuda'))
 
-    # ── Training epoch
     def train_epoch(self) -> Dict:
         self.model.train()
         losses, preds, truths = [], [], []
@@ -169,7 +150,7 @@ class Trainer:
             labels  = labels.to(self.device, non_blocking=True)
 
             self.optimizer.zero_grad()
-            with autocast(enabled=(self.device.type == 'cuda')):
+            with autocast(device_type=self.device.type, enabled=(self.device.type == 'cuda')):
                 logits = self.model(spatial, freq)
                 loss   = self.criterion(logits, labels)
 
@@ -189,7 +170,6 @@ class Trainer:
             'f1':   f1_score(truths, preds, zero_division=0),
         }
 
-    # ── Validation epoch
     @torch.no_grad()
     def val_epoch(self) -> Dict:
         self.model.eval()
@@ -230,7 +210,7 @@ class Trainer:
             'metrics': metrics,
             'args': vars(self.args),
         }, path)
-        logger.info(f"Saved checkpoint → {path}")
+        logger.info(f"Saved checkpoint -> {path}")
 
     def plot_confusion_matrix(self, truths, preds, save_path: str):
         cm = confusion_matrix(truths, preds)
@@ -264,14 +244,12 @@ class Trainer:
             )
 
             history['train'].append(train_metrics)
-            history['val'].append(val_metrics)
+            history['val'].append({k: v for k, v in val_metrics.items() if k not in ('preds', 'truths')})
 
-            # Checkpoint on best AUC
             if val_metrics['auc'] > self.best_val_auc:
                 self.best_val_auc = val_metrics['auc']
                 self.patience_counter = 0
                 self.save_checkpoint(epoch, val_metrics, tag='best')
-                # Save confusion matrix
                 self.plot_confusion_matrix(
                     val_metrics['truths'], val_metrics['preds'],
                     str(Path(self.args.save_dir) / 'confusion_matrix.png')
@@ -282,24 +260,19 @@ class Trainer:
                     logger.info(f"Early stopping at epoch {epoch}")
                     break
 
-            # Save every N epochs
             if epoch % 5 == 0:
                 self.save_checkpoint(epoch, val_metrics, tag=f'epoch_{epoch}')
 
-        # Final report
         self.save_checkpoint(self.args.epochs, val_metrics, tag='last')
         with open(Path(self.args.save_dir) / 'history.json', 'w') as f:
-            json.dump(history, f, indent=2)
+            json.dump(history, f, indent=2, default=str)
         logger.info(f"Training complete. Best Val AUC: {self.best_val_auc:.4f}")
         logger.info(f"\n{classification_report(val_metrics['truths'], val_metrics['preds'], target_names=['Real','Fake'])}")
 
 
-# ─────────────────────────────────────────────
-# Entry Point
-# ─────────────────────────────────────────────
 def parse_args():
     p = argparse.ArgumentParser(description="Train Fake vs Real Image Detector")
-    p.add_argument('--data_dir',     type=str,   default='./dataset')
+    p.add_argument('--data_dir',     type=str,   default=r'G:\deepfake-project\data\real_vs_fake\real-vs-fake')
     p.add_argument('--save_dir',     type=str,   default='./saved_model')
     p.add_argument('--backbone',     type=str,   default='efficientnet_b3')
     p.add_argument('--epochs',       type=int,   default=30)
@@ -307,6 +280,7 @@ def parse_args():
     p.add_argument('--lr',           type=float, default=1e-4)
     p.add_argument('--weight_decay', type=float, default=1e-2)
     p.add_argument('--patience',     type=int,   default=8)
+    p.add_argument('--num_workers',  type=int,   default=0)
     p.add_argument('--seed',         type=int,   default=42)
     return p.parse_args()
 
