@@ -16,7 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 import torchvision.transforms as T
 import numpy as np
 from sklearn.metrics import (
