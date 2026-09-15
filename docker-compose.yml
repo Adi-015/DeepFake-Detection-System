@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  detector:
+    build: .
+    container_name: fake-image-detector
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./saved_model:/app/saved_model   # mount trained weights
+      - ./heatmaps:/app/heatmaps         # persist heatmaps
+      - ./logs:/app/logs                 # persist logs
+    environment:
+      - BASE_URL=http://localhost:8000
+      - MAX_FILE_SIZE_MB=20
+      - MODEL_PATH=/app/saved_model/detector_best.pt
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]    # Remove if no GPU
