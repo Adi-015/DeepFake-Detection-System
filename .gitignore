@@ -36,6 +36,9 @@ test_subset/
 # Temporary backend migration folder
 backend/
 
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
 # OS files
 .DS_Store
 Thumbs.db
