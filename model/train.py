@@ -270,9 +270,30 @@ class Trainer:
         logger.info(f"\n{classification_report(val_metrics['truths'], val_metrics['preds'], target_names=['Real','Fake'])}")
 
 
+def get_default_data_dir() -> str:
+    """Auto-detect dataset directory across environments (Kaggle, Local, Docker)."""
+    env_dir = os.environ.get("DATA_DIR")
+    if env_dir and Path(env_dir).exists():
+        return env_dir
+
+    kaggle_path = Path("/kaggle/input/140k-real-and-fake-faces/real_vs_fake/real-vs-fake")
+    if kaggle_path.exists():
+        return str(kaggle_path)
+
+    local_default = Path(r"G:\deepfake-project\data\real_vs_fake\real-vs-fake")
+    if local_default.exists():
+        return str(local_default)
+
+    test_subset = Path(r"G:\deepfake-project\data\test_subset")
+    if test_subset.exists():
+        return str(test_subset)
+
+    return "./dataset"
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Train Fake vs Real Image Detector")
-    p.add_argument('--data_dir',     type=str,   default=r'G:\deepfake-project\data\real_vs_fake\real-vs-fake')
+    p.add_argument('--data_dir',     type=str,   default=get_default_data_dir(), help="Path to real-vs-fake dataset")
     p.add_argument('--save_dir',     type=str,   default='./saved_model')
     p.add_argument('--backbone',     type=str,   default='efficientnet_b3')
     p.add_argument('--epochs',       type=int,   default=30)
