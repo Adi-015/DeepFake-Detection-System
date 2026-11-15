@@ -79,13 +79,20 @@ dataset/
 ```
 
 ### 3. Train the model
+
+#### Option A: Cloud GPU Training (Recommended — Free T4 GPU)
+Use the included [`train_colab.ipynb`](./train_colab.ipynb) on **Google Colab** or **Kaggle**:
+1. Open [`train_colab.ipynb`](./train_colab.ipynb) in Google Colab (select **T4 GPU** runtime) or Kaggle (attach dataset `140k Real and Fake Faces`).
+2. Run training for 10–15 epochs.
+3. Download the resulting `detector_best.pt` checkpoint and place it in the local `saved_model/` folder.
+
+#### Option B: Local Training
 ```bash
-cd model
-python train.py \
+python model/train.py \
   --data_dir ./dataset \
-  --save_dir ../saved_model \
+  --save_dir ./saved_model \
   --backbone efficientnet_b3 \
-  --epochs 30 \
+  --epochs 15 \
   --batch_size 32 \
   --lr 1e-4
 ```
