@@ -39,18 +39,25 @@ class GradCAM:
         self._register_hooks()
 
     def _register_hooks(self):
-        try:
-            target_layer = self.model.cnn.backbone.conv_head
-        except AttributeError:
+        target_layer = None
+        for attr in ['conv_head', 'head', 'features', 'blocks']:
+            if hasattr(self.model.cnn.backbone, attr):
+                cand = getattr(self.model.cnn.backbone, attr)
+                if isinstance(cand, torch.nn.Module):
+                    target_layer = cand
+                    break
+
+        if target_layer is None:
             try:
                 target_layer = list(self.model.cnn.backbone.children())[-3]
             except Exception:
                 target_layer = None
-                logger.warning("Could not attach GradCAM hooks — heatmap unavailable.")
 
         if target_layer is not None:
             target_layer.register_forward_hook(self._save_activation)
             target_layer.register_full_backward_hook(self._save_gradient)
+        else:
+            logger.warning("Could not attach GradCAM hooks — heatmap unavailable.")
 
     def _save_activation(self, module, input, output):
         self.activations = output.detach()
